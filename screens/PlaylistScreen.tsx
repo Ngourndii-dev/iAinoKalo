@@ -10,14 +10,12 @@ import {
   Modal,
   Dimensions,
   useColorScheme,
-  AppState,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import * as MediaLibrary from 'expo-media-library';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
-import * as Permissions from 'expo-permissions';
 
 const { width, height } = Dimensions.get('window');
 
@@ -44,7 +42,6 @@ export default function PlaylistScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTrack, setSelectedTrack] = useState<PlaylistItem | null>(null);
 
-  // Configure notifications
   useEffect(() => {
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
@@ -54,7 +51,6 @@ export default function PlaylistScreen() {
       }),
     });
 
-    // Request permissions
     (async () => {
       const { status: audioStatus } = await Audio.requestPermissionsAsync();
       const { status: notificationStatus } = await Notifications.requestPermissionsAsync();
@@ -63,133 +59,9 @@ export default function PlaylistScreen() {
       }
     })();
 
-    // Handle notification responses
     const subscription = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
     return () => subscription.remove();
   }, []);
-
-  // Load music files and playlist
-  useEffect(() => {
-    (async () => {
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status === 'granted') {
-        const media = await MediaLibrary.getAssetsAsync({ mediaType: 'audio' });
-        const files = await Promise.all(
-          media.assets.map(async (item) => {
-            const metadata = await MediaLibrary.getAssetInfoAsync(item.id);
-            return {
-              id: item.id,
-              uri: item.uri,
-              filename: item.filename,
-              title: metadata.title || item.filename,
-              artist: metadata.artist || 'Unknown Artist',
-              album: metadata.album || 'Unknown Album',
-              artwork: metadata.artwork || null,
-            };
-          })
-        );
-        setMusicFiles(files);
-        setFilteredMusicFiles(files);
-      }
-
-      loadPlaylist();
-    })();
-
-    return () => {
-      if (currentSound) {
-        currentSound.unloadAsync();
-      }
-    };
-  }, []);
-
-  // Handle search
-  const handleSearch = (text: string) => {
-    setSearchText(text);
-    if (text) {
-      const filtered = musicFiles.filter((file) => file.title?.toLowerCase().includes(text.toLowerCase()));
-      setFilteredMusicFiles(filtered);
-    } else {
-      setFilteredMusicFiles(musicFiles);
-    }
-  };
-
-  // Save playlist to AsyncStorage
-  const savePlaylist = async (playlist: PlaylistItem[]) => {
-    try {
-      await AsyncStorage.setItem('playlist', JSON.stringify(playlist));
-    } catch (error) {
-      console.error('Failed to save playlist', error);
-    }
-  };
-
-  // Load playlist from AsyncStorage
-  const loadPlaylist = async () => {
-    try {
-      const savedPlaylist = await AsyncStorage.getItem('playlist');
-      if (savedPlaylist) {
-        setPlaylist(JSON.parse(savedPlaylist));
-      }
-    } catch (error) {
-      console.error('Failed to load playlist', error);
-    }
-  };
-
-  // Play sound
-  const playSound = async (track: PlaylistItem) => {
-    try {
-      if (currentSound) {
-        await currentSound.unloadAsync();
-      }
-
-      // Configure audio for background playback
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        staysActiveInBackground: true, // Enable background playback
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      });
-
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: track.uri },
-        { shouldPlay: true }
-      );
-
-      setCurrentSound(sound);
-      setCurrentTrack(track);
-      setIsPlaying(true);
-      await sound.playAsync();
-
-      // Show interactive notification
-      await showNotification(track);
-    } catch (error) {
-      console.error('Failed to play sound', error);
-    }
-  };
-
-  // Add track to playlist
-  const addToPlaylist = (track: PlaylistItem) => {
-    if (!playlist.find((item) => item.id === track.id)) {
-      const newPlaylist = [...playlist, track];
-      setPlaylist(newPlaylist);
-      savePlaylist(newPlaylist);
-    }
-  };
-
-  // Remove track from playlist
-  const removeFromPlaylist = (trackId: string) => {
-    const newPlaylist = playlist.filter((item) => item.id !== trackId);
-    setPlaylist(newPlaylist);
-    savePlaylist(newPlaylist);
-  };
-
-  // Show metadata modal
-  const openMetadataModal = (track: PlaylistItem) => {
-    setSelectedTrack(track);
-    setModalVisible(true);
-  };
-
-  // Show interactive notification
   const showNotification = async (track: PlaylistItem) => {
     await Notifications.scheduleNotificationAsync({
       content: {
@@ -212,41 +84,53 @@ export default function PlaylistScreen() {
           },
         ],
       },
-      trigger: null, // Immediately
+      trigger: null, 
     });
   };
 
-  // Handle notification responses
   const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
     const actionIdentifier = response.actionIdentifier;
     const trackId = response.notification.request.content.data.trackId;
     const track = musicFiles.find((item) => item.id === trackId);
-
-    if (track) {
-      switch (actionIdentifier) {
-        case 'play-pause':
-          if (isPlaying) {
-            currentSound?.pauseAsync();
-            setIsPlaying(false);
-          } else {
-            currentSound?.playAsync();
-            setIsPlaying(true);
-          }
-          break;
-        case 'next':
-          // Implement logic for next track
-          break;
-        case 'previous':
-          // Implement logic for previous track
-          break;
-        default:
-          playSound(track);
-          break;
+ 
+      if (track) {
+        switch (actionIdentifier) {
+          case 'play-pause':
+            if (isPlaying) {
+              currentSound?.pauseAsync();
+              setIsPlaying(false);
+            } else {
+              currentSound?.playAsync();
+              setIsPlaying(true);
+            }
+            break;
+      
+          case 'next':
+            // Passer à la piste suivante
+            const nextIndex = (currentTrackIndex + 1) % musicFiles.length;
+            if (musicFiles[nextIndex]) {
+              playSound(musicFiles[nextIndex]);
+              setCurrentTrackIndex(nextIndex);
+            }
+            break;
+      
+          case 'previous':
+            // Revenir à la piste précédente
+            const prevIndex = (currentTrackIndex - 1 + musicFiles.length) % musicFiles.length;
+            if (musicFiles[prevIndex]) {
+              playSound(musicFiles[prevIndex]);
+              setCurrentTrackIndex(prevIndex);
+            }
+            break;
+      
+          default:
+            playSound(track);
+            break;
+        }
       }
-    }
+      
   };
 
-  // Render song item
   const renderSongItem = ({ item }: { item: PlaylistItem }) => (
     <TouchableOpacity onPress={() => playSound(item)} style={styles(colorScheme).songItem}>
       <Image source={{ uri: item.artwork || 'default-image-uri' }} style={styles(colorScheme).artwork} />
@@ -263,6 +147,146 @@ export default function PlaylistScreen() {
       </TouchableOpacity>
     </TouchableOpacity>
   );
+
+const fetchAllAudioFiles = async () => {
+  const { status } = await MediaLibrary.requestPermissionsAsync();
+  if (status !== 'granted') {
+    console.warn('Permission refusée pour accéder à la bibliothèque multimédia.');
+    return [];
+  }
+
+  let allAudioFiles = [];
+  let nextPage = true;
+  let media = await MediaLibrary.getAssetsAsync({ mediaType: 'audio', first: 100 });
+
+  while (nextPage) {
+    allAudioFiles = [...allAudioFiles, ...media.assets];
+
+    if (media.hasNextPage) {
+      media = await MediaLibrary.getAssetsAsync({ mediaType: 'audio', first: 100, after: media.endCursor });
+    } else {
+      nextPage = false;
+    }
+  }
+
+  const audioFilesWithMetadata = await Promise.all(
+    allAudioFiles.map(async (item) => {
+      const metadata = await MediaLibrary.getAssetInfoAsync(item.id);
+      return {
+        id: item.id,
+        uri: item.uri,
+        filename: item.filename,
+        title: metadata.title || item.filename, 
+        artist: metadata.artist || 'Unknown Artist',
+        album: metadata.album || 'Unknown Album',
+        artwork: metadata.artwork || null,
+      };
+    })
+  );
+
+  return audioFilesWithMetadata;
+};
+
+
+  useEffect(() => {
+    (async () => {
+      const allAudio = await fetchAllAudioFiles();
+      setMusicFiles(allAudio);
+      setFilteredMusicFiles(allAudio);
+      loadPlaylist();
+    })();
+
+    return () => {
+      if (currentSound) {
+        currentSound.unloadAsync();
+      }
+    };
+  }, []);
+
+
+  const handleSearch = (text: string) => {
+    setSearchText(text);
+    if (text) {
+      const filtered = musicFiles.filter((file) => file.title?.toLowerCase().includes(text.toLowerCase()));
+      setFilteredMusicFiles(filtered);
+    } else {
+      setFilteredMusicFiles(musicFiles);
+    }
+  };
+
+
+  const savePlaylist = async (playlist: PlaylistItem[]) => {
+    try {
+      await AsyncStorage.setItem('playlist', JSON.stringify(playlist));
+    } catch (error) {
+      console.error('Failed to save playlist', error);
+    }
+  };
+
+  const loadPlaylist = async () => {
+    try {
+      const savedPlaylist = await AsyncStorage.getItem('playlist');
+      if (savedPlaylist) {
+        setPlaylist(JSON.parse(savedPlaylist));
+      }
+    } catch (error) {
+      console.error('Failed to load playlist', error);
+    }
+  };
+
+  const playSound = async (track: PlaylistItem) => {
+    try {
+      if (currentSound) {
+        await currentSound.unloadAsync();
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        staysActiveInBackground: true, 
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: track.uri },
+        { shouldPlay: true }
+      );
+
+      setCurrentSound(sound);
+      setCurrentTrack(track);
+      setIsPlaying(true);
+      await sound.playAsync();
+
+      await showNotification(track);
+    } catch (error) {
+      console.error('Failed to play sound', error);
+    }
+  };
+
+
+  const addToPlaylist = (track: PlaylistItem) => {
+    if (!playlist.find((item) => item.id === track.id)) {
+      const newPlaylist = [...playlist, track];
+      setPlaylist(newPlaylist);
+      savePlaylist(newPlaylist);
+    }
+  };
+
+
+  const removeFromPlaylist = (trackId: string) => {
+    const newPlaylist = playlist.filter((item) => item.id !== trackId);
+    setPlaylist(newPlaylist);
+    savePlaylist(newPlaylist);
+  };
+
+
+  const openMetadataModal = (track: PlaylistItem) => {
+    setSelectedTrack(track);
+    setModalVisible(true);
+  };
+
+
 
   return (
     <View style={styles(colorScheme).container}>
@@ -308,7 +332,6 @@ export default function PlaylistScreen() {
   );
 }
 
-// Styles
 const styles = (scheme: 'light' | 'dark' | null) =>
   StyleSheet.create({
     container: {

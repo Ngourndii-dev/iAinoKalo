@@ -3,9 +3,10 @@ import { StyleSheet, View, Text, TouchableOpacity, FlatList, Animated, TextInput
 import { Audio } from 'expo-av';
 import * as MediaLibrary from 'expo-media-library';
 import { useNavigation } from '@react-navigation/native';
+import * as Notifications from 'expo-notifications';
 
 export default function MusicPlayerScreen() {
-  const colorScheme = useColorScheme(); 
+  const colorScheme = useColorScheme();
   const [sounds, setSounds] = useState<Audio.Sound[]>([]);
   const [currentSound, setCurrentSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -16,53 +17,112 @@ export default function MusicPlayerScreen() {
   const navigation = useNavigation();
   const animatedValues = musicFiles.map(() => new Animated.Value(1));
   const [searchText, setSearchText] = useState('');
-  
+
   const fetchAllAudioFiles = async () => {
     const { status } = await MediaLibrary.requestPermissionsAsync();
     if (status !== 'granted') {
       console.warn('Permission refusée pour accéder à la bibliothèque multimédia.');
       return [];
     }
-  
+
     let allAudioFiles = [];
     let nextPage = true;
     let media = await MediaLibrary.getAssetsAsync({ mediaType: 'audio', first: 100 });
-  
+
     while (nextPage) {
       allAudioFiles = [...allAudioFiles, ...media.assets];
-  
+
       if (media.hasNextPage) {
         media = await MediaLibrary.getAssetsAsync({ mediaType: 'audio', first: 100, after: media.endCursor });
       } else {
         nextPage = false;
       }
     }
-  
+
     return allAudioFiles;
   };
-  
-    useEffect(() => {
-      (async () => {
-        const allAudio = await fetchAllAudioFiles();
-        setMusicFiles(allAudio);
-        setFilteredMusicFiles(allAudio);
-      })();
-  
-      return () => {
-        if (currentSound) {
-          currentSound.unloadAsync();
-        }
-      };
-    }, []);
-  
 
-  const handleSearch = (text: string) => {
-    setSearchText(text);
-    if (text) {
-      const filtered = musicFiles.filter((file) => file.filename.toLowerCase().includes(text.toLowerCase()));
-      setFilteredMusicFiles(filtered);
-    } else {
-      setFilteredMusicFiles(musicFiles);
+  useEffect(() => {
+    (async () => {
+      const allAudio = await fetchAllAudioFiles();
+      setMusicFiles(allAudio);
+      setFilteredMusicFiles(allAudio);
+    })();
+
+    return () => {
+      if (currentSound) {
+        currentSound.unloadAsync();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+      }),
+    });
+
+    (async () => {
+      const { status: audioStatus } = await Audio.requestPermissionsAsync();
+      const { status: notificationStatus } = await Notifications.requestPermissionsAsync();
+      if (audioStatus !== 'granted' || notificationStatus !== 'granted') {
+        alert('Permissions not granted!');
+      }
+    })();
+
+    const subscription = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
+    return () => subscription.remove();
+  }, []);
+
+  const showNotification = async (track: MediaLibrary.Asset) => {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: track.filename,
+        body: 'Now Playing',
+        sound: true,
+        data: { trackId: track.id },
+        actions: [
+          {
+            identifier: 'play-pause',
+            title: isPlaying ? 'Pause' : 'Play',
+          },
+          {
+            identifier: 'next',
+            title: 'Next',
+          },
+          {
+            identifier: 'previous',
+            title: 'Previous',
+          },
+        ],
+      },
+      trigger: null,
+    });
+  };
+
+  const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
+    const actionIdentifier = response.actionIdentifier;
+    const trackId = response.notification.request.content.data.trackId;
+    const trackIndex = musicFiles.findIndex((item) => item.id === trackId);
+
+    if (trackIndex !== -1) {
+      switch (actionIdentifier) {
+        case 'play-pause':
+          togglePlayPause();
+          break;
+        case 'next':
+          playNext();
+          break;
+        case 'previous':
+          playPrevious();
+          break;
+        default:
+          playSound(trackIndex);
+          break;
+      }
     }
   };
 
@@ -71,10 +131,20 @@ export default function MusicPlayerScreen() {
       if (currentSound) {
         await currentSound.unloadAsync();
       }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        staysActiveInBackground: true,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+
       const { sound } = await Audio.Sound.createAsync(
         { uri: musicFiles[index].uri },
         { shouldPlay: true }
       );
+
       setCurrentSound(sound);
       setIsPlaying(true);
       setCurrentTrackIndex(index);
@@ -85,6 +155,7 @@ export default function MusicPlayerScreen() {
         useNativeDriver: true,
       }).start();
       animateEqualizer(index);
+      await showNotification(musicFiles[index]);
     } catch (error) {
       console.error('Failed to play sound', error);
     }
@@ -130,6 +201,16 @@ export default function MusicPlayerScreen() {
       }),
     ]);
     Animated.loop(animation).start();
+  };
+
+  const handleSearch = (text: string) => {
+    setSearchText(text);
+    if (text) {
+      const filtered = musicFiles.filter((file) => file.filename.toLowerCase().includes(text.toLowerCase()));
+      setFilteredMusicFiles(filtered);
+    } else {
+      setFilteredMusicFiles(musicFiles);
+    }
   };
 
   return (
