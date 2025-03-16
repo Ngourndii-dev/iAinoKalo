@@ -20,13 +20,13 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.ngourndiidev.audioplayer",
       "infoPlist": {
-        "UIBackgroundModes": [
-          "audio",
-          "audio"
-        ],
+        "UIBackgroundModes": ["audio"],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "newArchEnabled": true
+      "notification": {
+        "sound": true,
+        "actions": ["previous", "play-pause", "next"]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -40,7 +40,12 @@
         "WRITE_EXTERNAL_STORAGE"
       ],
       "package": "com.ngourndiidev.audioplayer",
-      "newArchEnabled": true
+      "notification": {
+        "icon": "./assets/notification-icon.png",
+        "color": "#ffffff",
+        "visibility": "public",
+        "actions": ["previous", "play-pause", "next"]
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"

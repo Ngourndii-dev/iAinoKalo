@@ -84,20 +84,7 @@ export default function MusicPlayerScreen() {
         body: 'Now Playing',
         sound: true,
         data: { trackId: track.id },
-        actions: [
-          {
-            identifier: 'play-pause',
-            title: isPlaying ? 'Pause' : 'Play',
-          },
-          {
-            identifier: 'next',
-            title: 'Next',
-          },
-          {
-            identifier: 'previous',
-            title: 'Previous',
-          },
-        ],
+        categoryIdentifier: 'musicControls',
       },
       trigger: null,
     });
@@ -171,6 +158,9 @@ export default function MusicPlayerScreen() {
           if (currentTrackIndex !== null) animateEqualizer(currentTrackIndex);
         }
         setIsPlaying(!isPlaying);
+        if (currentTrackIndex !== null) {
+          await showNotification(musicFiles[currentTrackIndex]);
+        }
       }
     } catch (error) {
       console.error('Failed to toggle play/pause', error);
@@ -259,7 +249,6 @@ export default function MusicPlayerScreen() {
   );
 }
 
-
 const styles = (scheme: 'light' | 'dark' | null) => StyleSheet.create({
   container: {
     flex: 1,
@@ -334,6 +323,8 @@ const styles = (scheme: 'light' | 'dark' | null) => StyleSheet.create({
   },
   controlButton: {
     padding: 10,
+    borderRadius: 50,
+    backgroundColor: scheme === 'dark' ? '#1a2b4d' : '#e0e0e0',
   },
   icon: {
     fontSize: 40,
