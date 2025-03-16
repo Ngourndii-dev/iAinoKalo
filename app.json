@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "audio-player",
+    "slug": "audio-player",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ngourndiidev.audioplayer",
+      "infoPlist": {
+        "UIBackgroundModes": ["audio"]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "useNextNotificationsApi": true,
+      "permissions": [
+        "FOREGROUND_SERVICE",
+        "MEDIA_LIBRARY",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ],
+      "package": "com.ngourndiidev.audioplayer"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
