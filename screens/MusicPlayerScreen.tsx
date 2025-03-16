@@ -16,23 +16,45 @@ export default function MusicPlayerScreen() {
   const navigation = useNavigation();
   const animatedValues = musicFiles.map(() => new Animated.Value(1));
   const [searchText, setSearchText] = useState('');
-
-  useEffect(() => {
-    (async () => {
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status === 'granted') {
-        const media = await MediaLibrary.getAssetsAsync({ mediaType: 'audio' });
-        setMusicFiles(media.assets);
-        setFilteredMusicFiles(media.assets);
+  
+  const fetchAllAudioFiles = async () => {
+    const { status } = await MediaLibrary.requestPermissionsAsync();
+    if (status !== 'granted') {
+      console.warn('Permission refusée pour accéder à la bibliothèque multimédia.');
+      return [];
+    }
+  
+    let allAudioFiles = [];
+    let nextPage = true;
+    let media = await MediaLibrary.getAssetsAsync({ mediaType: 'audio', first: 100 });
+  
+    while (nextPage) {
+      allAudioFiles = [...allAudioFiles, ...media.assets];
+  
+      if (media.hasNextPage) {
+        media = await MediaLibrary.getAssetsAsync({ mediaType: 'audio', first: 100, after: media.endCursor });
+      } else {
+        nextPage = false;
       }
-    })();
-
-    return () => {
-      if (currentSound) {
-        currentSound.unloadAsync();
-      }
-    };
-  }, []);
+    }
+  
+    return allAudioFiles;
+  };
+  
+    useEffect(() => {
+      (async () => {
+        const allAudio = await fetchAllAudioFiles();
+        setMusicFiles(allAudio);
+        setFilteredMusicFiles(allAudio);
+      })();
+  
+      return () => {
+        if (currentSound) {
+          currentSound.unloadAsync();
+        }
+      };
+    }, []);
+  
 
   const handleSearch = (text: string) => {
     setSearchText(text);

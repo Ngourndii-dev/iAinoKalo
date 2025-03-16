@@ -20,25 +20,36 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.ngourndiidev.audioplayer",
       "infoPlist": {
-        "UIBackgroundModes": ["audio"]
-      }
+        "UIBackgroundModes": [
+          "audio",
+          "audio"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "newArchEnabled": true
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "useNextNotificationsApi": true,
       "permissions": [
         "FOREGROUND_SERVICE",
         "MEDIA_LIBRARY",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE"
       ],
-      "package": "com.ngourndiidev.audioplayer"
+      "package": "com.ngourndiidev.audioplayer",
+      "newArchEnabled": true
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "57af6074-a0a5-4d98-8db9-33a5d12adc36"
+      }
+    },
+    "owner": "ngourndii-dev"
   }
 }
