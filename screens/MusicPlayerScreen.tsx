@@ -259,6 +259,7 @@ export default function MusicPlayerScreen() {
   );
 }
 
+
 const styles = (scheme: 'light' | 'dark' | null) => StyleSheet.create({
   container: {
     flex: 1,
