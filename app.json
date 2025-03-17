@@ -1,15 +1,15 @@
 {
   "expo": {
-    "name": "audio-player",
-    "slug": "audio-player",
+    "name": "Kalo Music",
+    "slug": "kalo",
     "version": "1.0.0",
-    "orientation": "default",
+    "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0A0F1C"
     },
     "updates": {
       "enabled": true,
@@ -22,29 +22,27 @@
       "infoPlist": {
         "UIBackgroundModes": ["audio"],
         "ITSAppUsesNonExemptEncryption": false
-      },
-      "notification": {
-        "sound": true,
-        "actions": ["previous", "play-pause", "next"]
       }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0A0F1C"
       },
       "permissions": [
-        "FOREGROUND_SERVICE",
-        "MEDIA_LIBRARY",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.WAKE_LOCK",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "package": "com.ngourndiidev.audioplayer",
       "notification": {
         "icon": "./assets/notification-icon.png",
-        "color": "#ffffff",
-        "visibility": "public",
-        "actions": ["previous", "play-pause", "next"]
+        "color": "#1E90FF",
+        "channelId": "music-controls",
+        "sticky": true,
+        "priority": "high"
       }
     },
     "web": {
@@ -55,6 +53,15 @@
         "projectId": "57af6074-a0a5-4d98-8db9-33a5d12adc36"
       }
     },
-    "owner": "ngourndii-dev"
+    "owner": "ngourndii-dev",
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#1E90FF"
+        }
+      ]
+    ]
   }
 }
