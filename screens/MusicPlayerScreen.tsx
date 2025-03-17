@@ -8,6 +8,8 @@ import {
   Animated,
   TextInput,
   useColorScheme,
+  Dimensions,
+  Platform,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import * as MediaLibrary from 'expo-media-library';
@@ -21,6 +23,11 @@ interface Track {
   duration?: number;
 }
 
+const getOrientation = () => {
+  const { width, height } = Dimensions.get('window');
+  return width > height ? 'landscape' : 'portrait';
+};
+
 export default function MusicPlayerScreen() {
   const colorScheme = useColorScheme();
   const [currentSound, setCurrentSound] = useState<Audio.Sound | null>(null);
@@ -29,13 +36,21 @@ export default function MusicPlayerScreen() {
   const [filteredMusicFiles, setFilteredMusicFiles] = useState<Track[]>([]);
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number>(-1);
   const [shouldPlayNext, setShouldPlayNext] = useState(true);
+  const [searchText, setSearchText] = useState('');
+  const [orientation, setOrientation] = useState(getOrientation());
   const fadeAnim = useState(new Animated.Value(0))[0];
+  const scaleAnim = useState(new Animated.Value(1))[0];
   const navigation = useNavigation();
   const animatedValues = musicFiles.map(() => new Animated.Value(1));
-  const [searchText, setSearchText] = useState('');
   const notificationIdRef = useRef<string | null>(null);
 
-  // Configuration initiale des notifications
+  useEffect(() => {
+    const subscription = Dimensions.addEventListener('change', () => {
+      setOrientation(getOrientation());
+    });
+    return () => subscription?.remove();
+  }, []);
+
   useEffect(() => {
     const setupNotifications = async () => {
       await Notifications.setNotificationHandler({
@@ -47,26 +62,10 @@ export default function MusicPlayerScreen() {
       });
 
       await Notifications.setNotificationCategoryAsync('musicControls', [
-        {
-          identifier: 'play',
-          buttonTitle: 'Play',
-          options: { isDestructive: false },
-        },
-        {
-          identifier: 'pause',
-          buttonTitle: 'Pause',
-          options: { isDestructive: false },
-        },
-        {
-          identifier: 'next',
-          buttonTitle: 'Next',
-          options: { isDestructive: false },
-        },
-        {
-          identifier: 'previous',
-          buttonTitle: 'Previous',
-          options: { isDestructive: false },
-        },
+        { identifier: 'play', buttonTitle: 'Play' },
+        { identifier: 'pause', buttonTitle: 'Pause' },
+        { identifier: 'next', buttonTitle: 'Next' },
+        { identifier: 'previous', buttonTitle: 'Previous' },
       ]);
     };
 
@@ -75,7 +74,6 @@ export default function MusicPlayerScreen() {
     return () => subscription.remove();
   }, []);
 
-  // Chargement des fichiers audio et cleanup
   useEffect(() => {
     const loadAudioFiles = async () => {
       const allAudio = await fetchAllAudioFiles();
@@ -86,12 +84,8 @@ export default function MusicPlayerScreen() {
 
     return () => {
       const cleanup = async () => {
-        if (currentSound) {
-          await currentSound.unloadAsync();
-        }
-        if (notificationIdRef.current) {
-          await Notifications.dismissNotificationAsync(notificationIdRef.current);
-        }
+        if (currentSound) await currentSound.unloadAsync();
+        await dismissNotification();
       };
       cleanup();
     };
@@ -124,72 +118,64 @@ export default function MusicPlayerScreen() {
     }));
   };
 
-  const playSound = async (index: number, fromNext = false) => {
-    try {
-      // Si une musique est déjà en cours, l'arrêter immédiatement
-      if (currentSound) {
-        await currentSound.stopAsync();
-        await currentSound.unloadAsync();
-        setCurrentSound(null);
-      }
-
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        staysActiveInBackground: true,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      });
-
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: musicFiles[index].uri },
-        { shouldPlay: true }
-      );
-
-      setCurrentSound(sound);
-      setIsPlaying(true);
-      setCurrentTrackIndex(index);
-      // Désactiver la lecture automatique sauf si appelée par "Next"
-      setShouldPlayNext(fromNext);
-
-      sound.setOnPlaybackStatusUpdate(async (status) => {
-        if (!status.isLoaded) return;
-        if (status.didJustFinish && shouldPlayNext) {
-          const nextIndex = (index + 1) % musicFiles.length;
-          await playSound(nextIndex, true);
-        } else if (status.didJustFinish) {
-          setCurrentSound(null);
-          setIsPlaying(false);
-          setCurrentTrackIndex(-1);
-          await sound.unloadAsync();
-          await dismissNotification();
-        }
-      });
-
-      await updateNotification(musicFiles[index]);
-      Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
-      animateEqualizer(index);
-    } catch (error) {
-      console.error('Failed to play sound:', error);
+  const stopCurrentSound = async () => {
+    if (currentSound) {
+      await currentSound.stopAsync();
+      await currentSound.unloadAsync();
+      setCurrentSound(null);
     }
+  };
+
+  const playSound = async (index: number, fromNext = false) => {
+    await stopCurrentSound();
+    await Audio.setAudioModeAsync({
+      staysActiveInBackground: true,
+      playsInSilentModeIOS: true,
+      shouldDuckAndroid: true,
+    });
+
+    const { sound } = await Audio.Sound.createAsync(
+      { uri: musicFiles[index].uri },
+      { shouldPlay: true }
+    );
+
+    setCurrentSound(sound);
+    setIsPlaying(true);
+    setCurrentTrackIndex(index);
+    setShouldPlayNext(fromNext);
+
+    sound.setOnPlaybackStatusUpdate(async (status) => {
+      if (!status.isLoaded) return;
+      if (status.didJustFinish && shouldPlayNext) {
+        const nextIndex = (index + 1) % musicFiles.length;
+        await playSound(nextIndex, true);
+      } else if (status.didJustFinish) {
+        await stopCurrentSound();
+        setIsPlaying(false);
+        setCurrentTrackIndex(-1);
+        await dismissNotification();
+      }
+    });
+
+    await updateNotification(musicFiles[index]);
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.spring(scaleAnim, { toValue: 1, friction: 8, useNativeDriver: true }),
+    ]).start();
+    animateEqualizer(index);
   };
 
   const togglePlayPause = async () => {
     if (!currentSound || currentTrackIndex === -1) return;
-
-    try {
-      if (isPlaying) {
-        await currentSound.pauseAsync();
-        setIsPlaying(false);
-      } else {
-        await currentSound.playAsync();
-        setIsPlaying(true);
-        animateEqualizer(currentTrackIndex);
-      }
-      await updateNotification(musicFiles[currentTrackIndex]);
-    } catch (error) {
-      console.error('Failed to toggle play/pause:', error);
+    if (isPlaying) {
+      await currentSound.pauseAsync();
+      setIsPlaying(false);
+    } else {
+      await currentSound.playAsync();
+      setIsPlaying(true);
+      animateEqualizer(currentTrackIndex);
     }
+    await updateNotification(musicFiles[currentTrackIndex]);
   };
 
   const playNext = async () => {
@@ -206,17 +192,6 @@ export default function MusicPlayerScreen() {
     await playSound(prevIndex, true);
   };
 
-  const stopSound = async () => {
-    if (!currentSound) return;
-    await currentSound.stopAsync();
-    await currentSound.unloadAsync();
-    setCurrentSound(null);
-    setIsPlaying(false);
-    setCurrentTrackIndex(-1);
-    setShouldPlayNext(true);
-    await dismissNotification();
-  };
-
   const dismissNotification = async () => {
     if (notificationIdRef.current) {
       await Notifications.dismissNotificationAsync(notificationIdRef.current);
@@ -225,16 +200,18 @@ export default function MusicPlayerScreen() {
   };
 
   const updateNotification = async (track: Track) => {
-    await dismissNotification();
+    await Notifications.dismissAllNotificationsAsync();
+
+    const content = {
+      title: 'Now Playing',
+      body: `${track.filename} - ${isPlaying ? 'Playing' : 'Paused'}`,
+      sticky: true,
+      data: { trackId: track.id },
+      categoryIdentifier: 'musicControls',
+    };
 
     const notificationId = await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'Now Playing',
-        body: `${track.filename} - ${isPlaying ? 'Playing' : 'Paused'}`,
-        sticky: true,
-        data: { trackId: track.id },
-        categoryIdentifier: 'musicControls',
-      },
+      content,
       trigger: null,
     });
     notificationIdRef.current = notificationId;
@@ -245,7 +222,8 @@ export default function MusicPlayerScreen() {
 
     switch (actionIdentifier) {
       case 'play':
-        if (!isPlaying) await togglePlayPause();
+        if (!isPlaying && currentTrackIndex !== -1) await togglePlayPause();
+        else if (currentTrackIndex === -1 && musicFiles.length > 0) await playSound(0);
         break;
       case 'pause':
         if (isPlaying) await togglePlayPause();
@@ -257,17 +235,20 @@ export default function MusicPlayerScreen() {
         await playPrevious();
         break;
       case Notifications.DEFAULT:
+        if (currentTrackIndex !== -1) await playSound(currentTrackIndex);
         break;
     }
   };
 
   const animateEqualizer = (index: number) => {
     if (index < 0 || index >= animatedValues.length) return;
-    const animation = Animated.sequence([
-      Animated.timing(animatedValues[index], { toValue: 1.5, duration: 300, useNativeDriver: true }),
-      Animated.timing(animatedValues[index], { toValue: 1, duration: 300, useNativeDriver: true }),
-    ]);
-    Animated.loop(animation).start();
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(animatedValues[index], { toValue: 1.8, duration: 200, useNativeDriver: true }),
+        Animated.timing(animatedValues[index], { toValue: 1, duration: 200, useNativeDriver: true }),
+      ])
+    );
+    animation.start();
   };
 
   const handleSearch = (text: string) => {
@@ -280,32 +261,33 @@ export default function MusicPlayerScreen() {
   };
 
   return (
-    <View style={styles(colorScheme).container}>
-      <Text style={styles(colorScheme).title}>🎵 Music Player 🎵</Text>
+    <View style={styles(colorScheme, orientation).container}>
+      <Text style={styles(colorScheme, orientation).title}>Music Player</Text>
       <TextInput
-        style={styles(colorScheme).searchInput}
+        style={styles(colorScheme, orientation).searchInput}
         placeholder="Search Songs..."
-        placeholderTextColor="#888"
+        placeholderTextColor={colorScheme === 'dark' ? '#9ca3af' : '#6b7280'}
         value={searchText}
         onChangeText={handleSearch}
       />
       <FlatList
         data={filteredMusicFiles}
         keyExtractor={(item) => item.id}
+        contentContainerStyle={{ paddingBottom: 120 }}
         renderItem={({ item, index }) => {
           const isCurrent = currentTrackIndex === index;
           return (
             <TouchableOpacity
               onPress={() => playSound(index)}
-              style={[styles(colorScheme).songItem, isCurrent && styles(colorScheme).currentSong]}
+              style={[styles(colorScheme, orientation).songItem, isCurrent && styles(colorScheme, orientation).currentSong]}
             >
-              <Text style={styles(colorScheme).songTitle}>{item.filename}</Text>
+              <Text style={styles(colorScheme, orientation).songTitle}>{item.filename}</Text>
               {isCurrent && (
-                <View style={styles(colorScheme).equalizer}>
+                <View style={styles(colorScheme, orientation).equalizer}>
                   {[...Array(3)].map((_, i) => (
                     <Animated.View
                       key={i}
-                      style={[styles(colorScheme).bar, { transform: [{ scaleY: animatedValues[index] }] }]}
+                      style={[styles(colorScheme, orientation).bar, { transform: [{ scaleY: animatedValues[index] }] }]}
                     />
                   ))}
                 </View>
@@ -315,70 +297,83 @@ export default function MusicPlayerScreen() {
         }}
       />
       {currentTrackIndex !== -1 && (
-        <Animated.View style={[styles(colorScheme).controls, { opacity: fadeAnim }]}>
-          <TouchableOpacity onPress={playPrevious} style={styles(colorScheme).controlButton}>
-            <Text style={styles(colorScheme).icon}>⏮</Text>
+        <Animated.View
+          style={[styles(colorScheme, orientation).controls, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}
+        >
+          <TouchableOpacity onPress={playPrevious} style={styles(colorScheme, orientation).controlButton}>
+            <Text style={styles(colorScheme, orientation).icon}>⏮</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={togglePlayPause} style={styles(colorScheme).controlButton}>
-            <Text style={styles(colorScheme).icon}>{isPlaying ? '❚❚' : '▶'}</Text>
+          <TouchableOpacity onPress={togglePlayPause} style={styles(colorScheme, orientation).controlButton}>
+            <Text style={styles(colorScheme, orientation).icon}>{isPlaying ? '❚❚' : '▶'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={playNext} style={styles(colorScheme).controlButton}>
-            <Text style={styles(colorScheme).icon}>⏭</Text>
+          <TouchableOpacity onPress={playNext} style={styles(colorScheme, orientation).controlButton}>
+            <Text style={styles(colorScheme, orientation).icon}>⏭</Text>
           </TouchableOpacity>
         </Animated.View>
       )}
       <TouchableOpacity
         onPress={() => navigation.navigate('Playlist')}
-        style={styles(colorScheme).playlistButton}
+        style={styles(colorScheme, orientation).playlistButton}
       >
-        <Text style={styles(colorScheme).playlistButtonText}>Go to Playlist</Text>
+        <Text style={styles(colorScheme, orientation).playlistButtonText}>Go to Playlist</Text>
       </TouchableOpacity>
     </View>
   );
 }
 
-const styles = (scheme: 'light' | 'dark' | null) =>
+const styles = (scheme: 'light' | 'dark' | null, orientation: 'portrait' | 'landscape') =>
   StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: scheme === 'dark' ? '#0a0f1c' : '#f5f5f5',
-      padding: 16,
+      backgroundColor: scheme === 'dark' ? '#0f172a' : '#f8fafc',
+      padding: orientation === 'portrait' ? 16 : 24,
     },
     title: {
-      fontSize: 28,
-      fontWeight: 'bold',
-      color: scheme === 'dark' ? '#ffffff' : '#000000',
+      fontSize: orientation === 'portrait' ? 28 : 32,
+      fontFamily: 'Poppins-Bold',
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b',
       textAlign: 'center',
-      marginVertical: 20,
+      marginVertical: orientation === 'portrait' ? 20 : 30,
     },
     searchInput: {
-      height: 45,
-      backgroundColor: scheme === 'dark' ? '#1f2a40' : '#e0e0e0',
-      borderRadius: 10,
-      paddingHorizontal: 15,
+      height: 48,
+      backgroundColor: scheme === 'dark' ? '#1e293b' : '#e2e8f0',
+      borderRadius: 12,
+      paddingHorizontal: 16,
       marginBottom: 20,
-      color: scheme === 'dark' ? '#ffffff' : '#000000',
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b',
       fontSize: 16,
+      fontFamily: 'Poppins-Medium',
+      shadowColor: scheme === 'dark' ? '#000' : '#ccc',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 2,
     },
     songItem: {
-      backgroundColor: scheme === 'dark' ? '#121826' : '#ffffff',
-      padding: 12,
-      borderRadius: 10,
+      backgroundColor: scheme === 'dark' ? '#1e293b' : '#ffffff',
+      padding: 14,
+      borderRadius: 12,
       marginVertical: 6,
-      borderWidth: 1,
-      borderColor: scheme === 'dark' ? '#1f2a40' : '#d0d0d0',
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
+      shadowColor: scheme === 'dark' ? '#000' : '#ccc',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
     },
     currentSong: {
-      backgroundColor: scheme === 'dark' ? '#1a2b4d' : '#e0e0e0',
-      borderColor: scheme === 'dark' ? '#3b4d7d' : '#c0c0c0',
+      backgroundColor: scheme === 'dark' ? '#1a2b4d' : '#dbeafe',
+      borderWidth: 1,
+      borderColor: scheme === 'dark' ? '#3b82f6' : '#93c5fd',
     },
     songTitle: {
       fontSize: 16,
-      color: scheme === 'dark' ? '#ffffff' : '#000000',
-      fontWeight: '600',
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b',
+      fontFamily: 'Poppins-Regular',
+      flex: 1,
     },
     equalizer: {
       flexDirection: 'row',
@@ -388,37 +383,59 @@ const styles = (scheme: 'light' | 'dark' | null) =>
       width: 4,
       height: 20,
       marginHorizontal: 2,
-      backgroundColor: scheme === 'dark' ? '#1e90ff' : '#007bff',
+      backgroundColor: scheme === 'dark' ? '#3b82f6' : '#2563eb',
       borderRadius: 2,
     },
     controls: {
       flexDirection: 'row',
       justifyContent: 'space-around',
-      marginTop: 30,
-      backgroundColor: scheme === 'dark' ? '#121826' : '#ffffff',
-      padding: 15,
-      borderRadius: 15,
-      elevation: 6,
+      marginTop: orientation === 'portrait' ? 30 : 40,
+      backgroundColor: scheme === 'dark' ? '#1e293b' : '#ffffff',
+      padding: 16,
+      borderRadius: 16,
+      shadowColor: scheme === 'dark' ? '#000' : '#ccc',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.2,
+      shadowRadius: 6,
+      elevation: 8,
     },
     controlButton: {
-      padding: 12,
+      padding: 14,
       borderRadius: 50,
-      backgroundColor: scheme === 'dark' ? '#1a2b4d' : '#e0e0e0',
+      backgroundColor: scheme === 'dark' ? '#1a2b4d' : '#dbeafe',
+      transform: [{ scale: 1 }],
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.2,
+          shadowRadius: 4,
+        },
+        android: {
+          elevation: 4,
+        },
+      }),
     },
     icon: {
-      fontSize: 30,
-      color: scheme === 'dark' ? '#ffffff' : '#000000',
+      fontSize: 28,
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b',
+      fontFamily: 'Poppins-Medium',
     },
     playlistButton: {
       backgroundColor: '#1a2b4d',
-      padding: 12,
-      borderRadius: 10,
+      padding: 14,
+      borderRadius: 12,
       marginTop: 20,
       alignItems: 'center',
+      shadowColor: scheme === 'dark' ? '#000' : '#ccc',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 4,
+      elevation: 4,
     },
     playlistButtonText: {
       fontSize: 18,
       color: '#ffffff',
-      fontWeight: '600',
+      fontFamily: 'Poppins-SemiBold',
     },
   });

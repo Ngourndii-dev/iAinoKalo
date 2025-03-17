@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic", // Changé de "dark" à "automatic"
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -28,6 +28,9 @@
     "permissions": [
       "audioRecording",
       "notifications"
+    ],
+    "assets": [
+      "./assets/fonts"
     ],
     "android": {
       "adaptiveIcon": {
