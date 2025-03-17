@@ -28,13 +28,13 @@ export default function MusicPlayerScreen() {
   const [musicFiles, setMusicFiles] = useState<Track[]>([]);
   const [filteredMusicFiles, setFilteredMusicFiles] = useState<Track[]>([]);
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number>(-1);
+  const [shouldPlayNext, setShouldPlayNext] = useState(true); // Nouveau state pour contrôler la lecture automatique
   const fadeAnim = useState(new Animated.Value(0))[0];
   const navigation = useNavigation();
   const animatedValues = musicFiles.map(() => new Animated.Value(1));
   const [searchText, setSearchText] = useState('');
   const notificationIdRef = useRef<string | null>(null);
 
-  // Configuration initiale des notifications
   useEffect(() => {
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
@@ -56,7 +56,6 @@ export default function MusicPlayerScreen() {
     return () => subscription.remove();
   }, []);
 
-  // Chargement des fichiers audio
   useEffect(() => {
     (async () => {
       const allAudio = await fetchAllAudioFiles();
@@ -103,15 +102,13 @@ export default function MusicPlayerScreen() {
     }));
   };
 
-  const playSound = async (index: number) => {
+  const playSound = async (index: number, fromNext = false) => {
     try {
-      // Arrêter et décharger le son actuel s'il existe
       if (currentSound) {
         await currentSound.stopAsync();
         await currentSound.unloadAsync();
       }
 
-      // Configuration du mode audio
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         staysActiveInBackground: true,
@@ -128,13 +125,21 @@ export default function MusicPlayerScreen() {
       setCurrentSound(sound);
       setIsPlaying(true);
       setCurrentTrackIndex(index);
+      // Désactiver la lecture automatique lors d'un clic manuel
+      if (!fromNext) {
+        setShouldPlayNext(false);
+      }
 
-      // Gestion de la fin de lecture
       sound.setOnPlaybackStatusUpdate(async (status) => {
-        if (status.isLoaded && status.didJustFinish) {
+        if (status.isLoaded && status.didJustFinish && shouldPlayNext) {
           await sound.unloadAsync();
           const nextIndex = (index + 1) % musicFiles.length;
-          playSound(nextIndex);
+          playSound(nextIndex, true);
+        } else if (status.isLoaded && status.didJustFinish) {
+          await sound.unloadAsync();
+          setCurrentSound(null);
+          setIsPlaying(false);
+          setShouldPlayNext(true); // Réactiver pour le prochain clic
         }
       });
 
@@ -165,14 +170,16 @@ export default function MusicPlayerScreen() {
 
   const playNext = async () => {
     if (musicFiles.length === 0) return;
+    setShouldPlayNext(true); // Activer la lecture automatique pour le bouton suivant
     const nextIndex = (currentTrackIndex + 1) % musicFiles.length;
-    await playSound(nextIndex);
+    await playSound(nextIndex, true);
   };
 
   const playPrevious = async () => {
     if (musicFiles.length === 0) return;
+    setShouldPlayNext(true); // Activer la lecture automatique pour le bouton précédent
     const prevIndex = (currentTrackIndex - 1 + musicFiles.length) % musicFiles.length;
-    await playSound(prevIndex);
+    await playSound(prevIndex, true);
   };
 
   const stopSound = async () => {
@@ -182,6 +189,7 @@ export default function MusicPlayerScreen() {
       setCurrentSound(null);
       setIsPlaying(false);
       setCurrentTrackIndex(-1);
+      setShouldPlayNext(true);
       await dismissAllNotifications();
     }
   };
@@ -191,22 +199,22 @@ export default function MusicPlayerScreen() {
       await Notifications.dismissNotificationAsync(notificationIdRef.current);
       notificationIdRef.current = null;
     }
-    await Notifications.dismissAllNotificationsAsync(); // Supprime toutes les notifications précédentes
+    await Notifications.dismissAllNotificationsAsync();
   };
 
   const updateNotification = async (track: Track) => {
-    await dismissAllNotifications(); // Supprime toutes les anciennes notifications
+    await dismissAllNotifications();
 
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
         title: track.filename,
         body: isPlaying ? 'Playing' : 'Paused',
         sound: false,
-        sticky: true, // Garde la notification visible sur l'écran de verrouillage
+        sticky: true,
         data: { trackId: track.id },
         categoryIdentifier: 'musicControls',
       },
-      trigger: null, // Notification immédiate
+      trigger: null,
     });
     notificationIdRef.current = notificationId;
   };
@@ -224,7 +232,6 @@ export default function MusicPlayerScreen() {
         await playPrevious();
         break;
       case Notifications.DEFAULT:
-        // Si l'utilisateur clique sur la notification principale, rien ne se passe ici
         break;
     }
   };
@@ -305,6 +312,7 @@ export default function MusicPlayerScreen() {
   );
 }
 
+// Les styles restent inchangés
 const styles = (scheme: 'light' | 'dark' | null) =>
   StyleSheet.create({
     container: {
