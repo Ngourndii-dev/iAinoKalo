@@ -28,70 +28,92 @@ export default function MusicPlayerScreen() {
   const [musicFiles, setMusicFiles] = useState<Track[]>([]);
   const [filteredMusicFiles, setFilteredMusicFiles] = useState<Track[]>([]);
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number>(-1);
-  const [shouldPlayNext, setShouldPlayNext] = useState(true); // Nouveau state pour contrôler la lecture automatique
+  const [shouldPlayNext, setShouldPlayNext] = useState(true);
   const fadeAnim = useState(new Animated.Value(0))[0];
   const navigation = useNavigation();
   const animatedValues = musicFiles.map(() => new Animated.Value(1));
   const [searchText, setSearchText] = useState('');
   const notificationIdRef = useRef<string | null>(null);
 
+  // Configuration initiale des notifications
   useEffect(() => {
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: false,
-        shouldSetBadge: false,
-      }),
-    });
+    const setupNotifications = async () => {
+      await Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldShowAlert: true,
+          shouldPlaySound: false,
+          shouldSetBadge: false,
+        }),
+      });
 
-    (async () => {
       await Notifications.setNotificationCategoryAsync('musicControls', [
-        { identifier: 'play-pause', buttonTitle: 'Play/Pause', options: { isDestructive: false } },
-        { identifier: 'next', buttonTitle: 'Next', options: { isDestructive: false } },
-        { identifier: 'previous', buttonTitle: 'Previous', options: { isDestructive: false } },
+        {
+          identifier: 'play',
+          buttonTitle: 'Play',
+          options: { isDestructive: false },
+        },
+        {
+          identifier: 'pause',
+          buttonTitle: 'Pause',
+          options: { isDestructive: false },
+        },
+        {
+          identifier: 'next',
+          buttonTitle: 'Next',
+          options: { isDestructive: false },
+        },
+        {
+          identifier: 'previous',
+          buttonTitle: 'Previous',
+          options: { isDestructive: false },
+        },
       ]);
-    })();
+    };
 
+    setupNotifications();
     const subscription = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
     return () => subscription.remove();
   }, []);
 
+  // Chargement des fichiers audio et cleanup
   useEffect(() => {
-    (async () => {
+    const loadAudioFiles = async () => {
       const allAudio = await fetchAllAudioFiles();
       setMusicFiles(allAudio);
       setFilteredMusicFiles(allAudio);
-    })();
+    };
+    loadAudioFiles();
 
     return () => {
-      if (currentSound) {
-        currentSound.unloadAsync();
-      }
-      if (notificationIdRef.current) {
-        Notifications.dismissNotificationAsync(notificationIdRef.current);
-      }
+      const cleanup = async () => {
+        if (currentSound) {
+          await currentSound.unloadAsync();
+        }
+        if (notificationIdRef.current) {
+          await Notifications.dismissNotificationAsync(notificationIdRef.current);
+        }
+      };
+      cleanup();
     };
   }, []);
 
-  const fetchAllAudioFiles = async () => {
+  const fetchAllAudioFiles = async (): Promise<Track[]> => {
     const { status } = await MediaLibrary.requestPermissionsAsync();
     if (status !== 'granted') return [];
 
     let allAudioFiles: MediaLibrary.Asset[] = [];
-    let nextPage = true;
-    let media = await MediaLibrary.getAssetsAsync({ mediaType: 'audio', first: 100 });
+    let hasNextPage = true;
+    let after: string | undefined;
 
-    while (nextPage) {
+    while (hasNextPage) {
+      const media = await MediaLibrary.getAssetsAsync({
+        mediaType: 'audio',
+        first: 100,
+        after,
+      });
       allAudioFiles = [...allAudioFiles, ...media.assets];
-      if (media.hasNextPage) {
-        media = await MediaLibrary.getAssetsAsync({ 
-          mediaType: 'audio', 
-          first: 100, 
-          after: media.endCursor 
-        });
-      } else {
-        nextPage = false;
-      }
+      hasNextPage = media.hasNextPage;
+      after = media.endCursor;
     }
 
     return allAudioFiles.map((item) => ({
@@ -104,9 +126,11 @@ export default function MusicPlayerScreen() {
 
   const playSound = async (index: number, fromNext = false) => {
     try {
+      // Si une musique est déjà en cours, l'arrêter immédiatement
       if (currentSound) {
         await currentSound.stopAsync();
         await currentSound.unloadAsync();
+        setCurrentSound(null);
       }
 
       await Audio.setAudioModeAsync({
@@ -125,21 +149,20 @@ export default function MusicPlayerScreen() {
       setCurrentSound(sound);
       setIsPlaying(true);
       setCurrentTrackIndex(index);
-      // Désactiver la lecture automatique lors d'un clic manuel
-      if (!fromNext) {
-        setShouldPlayNext(false);
-      }
+      // Désactiver la lecture automatique sauf si appelée par "Next"
+      setShouldPlayNext(fromNext);
 
       sound.setOnPlaybackStatusUpdate(async (status) => {
-        if (status.isLoaded && status.didJustFinish && shouldPlayNext) {
-          await sound.unloadAsync();
+        if (!status.isLoaded) return;
+        if (status.didJustFinish && shouldPlayNext) {
           const nextIndex = (index + 1) % musicFiles.length;
-          playSound(nextIndex, true);
-        } else if (status.isLoaded && status.didJustFinish) {
-          await sound.unloadAsync();
+          await playSound(nextIndex, true);
+        } else if (status.didJustFinish) {
           setCurrentSound(null);
           setIsPlaying(false);
-          setShouldPlayNext(true); // Réactiver pour le prochain clic
+          setCurrentTrackIndex(-1);
+          await sound.unloadAsync();
+          await dismissNotification();
         }
       });
 
@@ -147,69 +170,67 @@ export default function MusicPlayerScreen() {
       Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
       animateEqualizer(index);
     } catch (error) {
-      console.error('Failed to play sound', error);
+      console.error('Failed to play sound:', error);
     }
   };
 
   const togglePlayPause = async () => {
-    if (!currentSound) return;
+    if (!currentSound || currentTrackIndex === -1) return;
 
-    if (isPlaying) {
-      await currentSound.pauseAsync();
-      setIsPlaying(false);
-    } else {
-      await currentSound.playAsync();
-      setIsPlaying(true);
-      animateEqualizer(currentTrackIndex);
-    }
-    
-    if (currentTrackIndex !== -1) {
+    try {
+      if (isPlaying) {
+        await currentSound.pauseAsync();
+        setIsPlaying(false);
+      } else {
+        await currentSound.playAsync();
+        setIsPlaying(true);
+        animateEqualizer(currentTrackIndex);
+      }
       await updateNotification(musicFiles[currentTrackIndex]);
+    } catch (error) {
+      console.error('Failed to toggle play/pause:', error);
     }
   };
 
   const playNext = async () => {
     if (musicFiles.length === 0) return;
-    setShouldPlayNext(true); // Activer la lecture automatique pour le bouton suivant
     const nextIndex = (currentTrackIndex + 1) % musicFiles.length;
+    setShouldPlayNext(true);
     await playSound(nextIndex, true);
   };
 
   const playPrevious = async () => {
     if (musicFiles.length === 0) return;
-    setShouldPlayNext(true); // Activer la lecture automatique pour le bouton précédent
     const prevIndex = (currentTrackIndex - 1 + musicFiles.length) % musicFiles.length;
+    setShouldPlayNext(true);
     await playSound(prevIndex, true);
   };
 
   const stopSound = async () => {
-    if (currentSound) {
-      await currentSound.stopAsync();
-      await currentSound.unloadAsync();
-      setCurrentSound(null);
-      setIsPlaying(false);
-      setCurrentTrackIndex(-1);
-      setShouldPlayNext(true);
-      await dismissAllNotifications();
-    }
+    if (!currentSound) return;
+    await currentSound.stopAsync();
+    await currentSound.unloadAsync();
+    setCurrentSound(null);
+    setIsPlaying(false);
+    setCurrentTrackIndex(-1);
+    setShouldPlayNext(true);
+    await dismissNotification();
   };
 
-  const dismissAllNotifications = async () => {
+  const dismissNotification = async () => {
     if (notificationIdRef.current) {
       await Notifications.dismissNotificationAsync(notificationIdRef.current);
       notificationIdRef.current = null;
     }
-    await Notifications.dismissAllNotificationsAsync();
   };
 
   const updateNotification = async (track: Track) => {
-    await dismissAllNotifications();
+    await dismissNotification();
 
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
-        title: track.filename,
-        body: isPlaying ? 'Playing' : 'Paused',
-        sound: false,
+        title: 'Now Playing',
+        body: `${track.filename} - ${isPlaying ? 'Playing' : 'Paused'}`,
         sticky: true,
         data: { trackId: track.id },
         categoryIdentifier: 'musicControls',
@@ -221,9 +242,13 @@ export default function MusicPlayerScreen() {
 
   const handleNotificationResponse = async (response: Notifications.NotificationResponse) => {
     const actionIdentifier = response.actionIdentifier;
+
     switch (actionIdentifier) {
-      case 'play-pause':
-        await togglePlayPause();
+      case 'play':
+        if (!isPlaying) await togglePlayPause();
+        break;
+      case 'pause':
+        if (isPlaying) await togglePlayPause();
         break;
       case 'next':
         await playNext();
@@ -312,7 +337,6 @@ export default function MusicPlayerScreen() {
   );
 }
 
-// Les styles restent inchangés
 const styles = (scheme: 'light' | 'dark' | null) =>
   StyleSheet.create({
     container: {

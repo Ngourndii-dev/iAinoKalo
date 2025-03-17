@@ -24,9 +24,6 @@ interface PlaylistItem {
   uri: string;
   filename: string;
   title?: string;
-  artist?: string;
-  album?: string;
-  artwork?: string;
   duration?: number;
 }
 
@@ -94,9 +91,6 @@ export default function PlaylistScreen() {
           uri: item.uri,
           filename: item.filename,
           title: metadata.title || item.filename,
-          artist: metadata.artist || 'Unknown Artist',
-          album: metadata.album || 'Unknown Album',
-          artwork: metadata.artwork || null,
           duration: item.duration || 0,
         };
       })

@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -24,6 +25,10 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
+    "permissions": [
+      "audioRecording",
+      "notifications"
+    ],
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -55,6 +60,7 @@
     },
     "owner": "ngourndii-dev",
     "plugins": [
+      "expo-av",
       [
         "expo-notifications",
         {
