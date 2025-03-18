@@ -30,21 +30,32 @@ interface PlaylistItem {
   album?: string;
 }
 
-const getOrientation = () => width > height ? 'landscape' : 'portrait';
+interface Playlist {
+  id: string;
+  title: string;
+  tracks: PlaylistItem[];
+}
+
+const getOrientation = () => (width > height ? 'landscape' : 'portrait');
 
 export default function PlaylistScreen() {
   const colorScheme = useColorScheme();
   const [musicFiles, setMusicFiles] = useState<PlaylistItem[]>([]);
-  const [playlist, setPlaylist] = useState<PlaylistItem[]>([]);
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [filteredMusicFiles, setFilteredMusicFiles] = useState<PlaylistItem[]>([]);
   const [currentSound, setCurrentSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTrack, setCurrentTrack] = useState<PlaylistItem | null>(null);
   const [currentIndex, setCurrentIndex] = useState<number>(-1);
   const [searchText, setSearchText] = useState('');
-  const [modalVisible, setModalVisible] = useState(false);
+  const [songModalVisible, setSongModalVisible] = useState(false);
+  const [playlistModalVisible, setPlaylistModalVisible] = useState(false);
   const [selectedTrack, setSelectedTrack] = useState<PlaylistItem | null>(null);
-  const [showPlaylist, setShowPlaylist] = useState(false);
+  const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
+  const [showPlaylists, setShowPlaylists] = useState(false);
+  const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [newPlaylistTitle, setNewPlaylistTitle] = useState('');
   const [orientation, setOrientation] = useState(getOrientation());
   const navigation = useNavigation();
   const notificationIdRef = useRef<string | null>(null);
@@ -80,7 +91,7 @@ export default function PlaylistScreen() {
       const allAudio = await fetchAllAudioFiles();
       setMusicFiles(allAudio);
       setFilteredMusicFiles(allAudio);
-      await loadPlaylist();
+      await loadPlaylists();
     };
 
     initialize();
@@ -121,39 +132,79 @@ export default function PlaylistScreen() {
     );
   };
 
-  const loadPlaylist = async () => {
+  const loadPlaylists = async () => {
     try {
-      const savedPlaylist = await AsyncStorage.getItem('playlist');
-      if (savedPlaylist) setPlaylist(JSON.parse(savedPlaylist));
+      const savedPlaylists = await AsyncStorage.getItem('playlists');
+      if (savedPlaylists) setPlaylists(JSON.parse(savedPlaylists));
     } catch (error) {
-      console.error('Failed to load playlist', error);
+      console.error('Failed to load playlists', error);
     }
   };
 
-  const savePlaylist = async (newPlaylist: PlaylistItem[]) => {
+  const savePlaylists = async (updatedPlaylists: Playlist[]) => {
     try {
-      await AsyncStorage.setItem('playlist', JSON.stringify(newPlaylist));
+      await AsyncStorage.setItem('playlists', JSON.stringify(updatedPlaylists));
+      setPlaylists(updatedPlaylists);
     } catch (error) {
-      console.error('Failed to save playlist', error);
+      console.error('Failed to save playlists', error);
     }
   };
 
-  const addToPlaylist = (track: PlaylistItem) => {
-    if (!playlist.some((item) => item.id === track.id)) {
-      const newPlaylist = [...playlist, track];
-      setPlaylist(newPlaylist);
-      savePlaylist(newPlaylist);
+  const createPlaylist = () => {
+    if (newPlaylistTitle.trim()) {
+      const newPlaylist: Playlist = {
+        id: Date.now().toString(),
+        title: newPlaylistTitle.trim(),
+        tracks: [],
+      };
+      savePlaylists([...playlists, newPlaylist]);
+      setNewPlaylistTitle('');
+      setCreateModalVisible(false);
     }
   };
 
-  const removeFromPlaylist = (trackId: string) => {
-    const newPlaylist = playlist.filter((item) => item.id !== trackId);
-    setPlaylist(newPlaylist);
-    savePlaylist(newPlaylist);
+  const deletePlaylist = (playlistId: string) => {
+    const updatedPlaylists = playlists.filter((playlist) => playlist.id !== playlistId);
+    savePlaylists(updatedPlaylists);
+    if (selectedPlaylist?.id === playlistId) {
+      setSelectedPlaylist(null);
+      setPlaylistModalVisible(false);
+    }
+  };
+
+  const addToPlaylist = (track: PlaylistItem, playlistId: string) => {
+    const updatedPlaylists = playlists.map((playlist) => {
+      if (playlist.id === playlistId && !playlist.tracks.some((t) => t.id === track.id)) {
+        return { ...playlist, tracks: [...playlist.tracks, track] };
+      }
+      return playlist;
+    });
+    savePlaylists(updatedPlaylists);
+  };
+
+  const removeFromPlaylist = (trackId: string, playlistId: string) => {
+    const updatedPlaylists = playlists.map((playlist) => {
+      if (playlist.id === playlistId) {
+        return { ...playlist, tracks: playlist.tracks.filter((t) => t.id !== trackId) };
+      }
+      return playlist;
+    });
+    savePlaylists(updatedPlaylists);
     if (currentTrack?.id === trackId) stopSound();
   };
 
-  const playSound = async (track: PlaylistItem, index: number) => {
+  const editPlaylistTitle = (playlistId: string, newTitle: string) => {
+    const updatedPlaylists = playlists.map((playlist) => {
+      if (playlist.id === playlistId) {
+        return { ...playlist, title: newTitle.trim() };
+      }
+      return playlist;
+    });
+    savePlaylists(updatedPlaylists);
+    setEditModalVisible(false);
+  };
+
+  const playSound = async (track: PlaylistItem, index: number, playlist: PlaylistItem[]) => {
     try {
       if (currentSound) await currentSound.unloadAsync();
 
@@ -173,7 +224,7 @@ export default function PlaylistScreen() {
 
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.didJustFinish) {
-          if (index < playlist.length - 1) playNext();
+          if (index < playlist.length - 1) playNext(playlist);
           else stopSound();
         }
       });
@@ -200,12 +251,12 @@ export default function PlaylistScreen() {
     }
   };
 
-  const playNext = () => {
-    if (currentIndex < playlist.length - 1) playSound(playlist[currentIndex + 1], currentIndex + 1);
+  const playNext = (playlist: PlaylistItem[]) => {
+    if (currentIndex < playlist.length - 1) playSound(playlist[currentIndex + 1], currentIndex + 1, playlist);
   };
 
-  const playPrevious = () => {
-    if (currentIndex > 0) playSound(playlist[currentIndex - 1], currentIndex - 1);
+  const playPrevious = (playlist: PlaylistItem[]) => {
+    if (currentIndex > 0) playSound(playlist[currentIndex - 1], currentIndex - 1, playlist);
   };
 
   const togglePlayPause = async () => {
@@ -235,13 +286,14 @@ export default function PlaylistScreen() {
 
   const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
     const action = response.actionIdentifier;
+    const currentPlaylist = selectedPlaylist?.tracks || [];
 
     if (action === 'play-pause') {
       togglePlayPause();
     } else if (action === 'next') {
-      playNext();
+      playNext(currentPlaylist);
     } else if (action === 'previous') {
-      playPrevious();
+      playPrevious(currentPlaylist);
     }
   };
 
@@ -255,21 +307,38 @@ export default function PlaylistScreen() {
   };
 
   const renderPlaylistItem = ({ item, index }: { item: PlaylistItem; index: number }) => (
-    <TouchableOpacity onPress={() => playSound(item, index)} style={styles(colorScheme, orientation).playlistItem}>
-      <Text numberOfLines={1} style={styles(colorScheme, orientation).playlistTitle}>
-        {item.title}
-      </Text>
-      <TouchableOpacity onPress={() => removeFromPlaylist(item.id)}>
-        <Text style={styles(colorScheme, orientation).removeButton}>✖</Text>
+    <View style={styles(colorScheme, orientation).playlistTrackItem}>
+      <TouchableOpacity
+        onPress={() => selectedPlaylist && playSound(item, index, selectedPlaylist.tracks)}
+        style={styles(colorScheme, orientation).playlistTrackContent}
+      >
+        <Image
+          source={{ uri: item.artwork || 'https://via.placeholder.com/40' }}
+          style={styles(colorScheme, orientation).trackArtwork}
+        />
+        <View style={styles(colorScheme, orientation).trackInfo}>
+          <Text numberOfLines={1} style={styles(colorScheme, orientation).trackTitle}>
+            {item.title}
+          </Text>
+          <Text style={styles(colorScheme, orientation).trackArtist}>
+            {item.artist || 'Unknown'}
+          </Text>
+        </View>
       </TouchableOpacity>
-    </TouchableOpacity>
+      <TouchableOpacity
+        onPress={() => selectedPlaylist && removeFromPlaylist(item.id, selectedPlaylist.id)}
+        style={styles(colorScheme, orientation).actionButton}
+      >
+        <Text style={styles(colorScheme, orientation).actionButtonText}>✖</Text>
+      </TouchableOpacity>
+    </View>
   );
 
   const renderSongItem = ({ item }: { item: PlaylistItem }) => (
     <TouchableOpacity
       onPress={() => {
         setSelectedTrack(item);
-        setModalVisible(true);
+        setSongModalVisible(true);
       }}
       style={styles(colorScheme, orientation).songItem}
     >
@@ -281,44 +350,87 @@ export default function PlaylistScreen() {
         <Text numberOfLines={1} style={styles(colorScheme, orientation).songTitle}>
           {item.title}
         </Text>
-        <Text style={styles(colorScheme, orientation).songArtist}>{item.artist || 'Unknown'}</Text>
+        <Text style={styles(colorScheme, orientation).songArtist}>
+          {item.artist || 'Unknown'}
+        </Text>
       </View>
-      <TouchableOpacity onPress={() => addToPlaylist(item)}>
-        <Text style={styles(colorScheme, orientation).addToPlaylist}>+</Text>
-      </TouchableOpacity>
     </TouchableOpacity>
+  );
+
+  const renderPlaylist = ({ item }: { item: Playlist }) => (
+    <View style={styles(colorScheme, orientation).playlistCard}>
+      <TouchableOpacity
+        onPress={() => {
+          setSelectedPlaylist(item);
+          setPlaylistModalVisible(true);
+        }}
+        style={styles(colorScheme, orientation).playlistContent}
+      >
+        <Text numberOfLines={1} style={styles(colorScheme, orientation).playlistTitle}>
+          {item.title}
+        </Text>
+        <Text style={styles(colorScheme, orientation).playlistSubtitle}>
+          {item.tracks.length} tracks
+        </Text>
+      </TouchableOpacity>
+      <View style={styles(colorScheme, orientation).playlistActions}>
+        <TouchableOpacity
+          onPress={() => {
+            setSelectedPlaylist(item);
+            setEditModalVisible(true);
+          }}
+          style={styles(colorScheme, orientation).actionButton}
+        >
+          <Text style={styles(colorScheme, orientation).actionButtonText}>✎</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => deletePlaylist(item.id)}
+          style={styles(colorScheme, orientation).actionButton}
+        >
+          <Text style={styles(colorScheme, orientation).actionButtonText}>🗑️</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 
   return (
     <View style={styles(colorScheme, orientation).container}>
       <View style={styles(colorScheme, orientation).header}>
-        <Text style={styles(colorScheme, orientation).title}>🎵 My Playlist 🎶</Text>
+        <Text style={styles(colorScheme, orientation).title}>🎵 My Playlists 🎶</Text>
       </View>
 
       <TextInput
         style={styles(colorScheme, orientation).searchInput}
         placeholder="Search Songs..."
-        placeholderTextColor={colorScheme === 'dark' ? '#aaaaaa' : '#666'}
+        placeholderTextColor={colorScheme === 'dark' ? '#aaaaaa' : '#666666'}
         value={searchText}
         onChangeText={handleSearch}
       />
 
-      <TouchableOpacity
-        onPress={() => setShowPlaylist(!showPlaylist)}
-        style={styles(colorScheme, orientation).toggleButton}
-      >
-        <Text style={styles(colorScheme, orientation).toggleButtonText}>
-          {showPlaylist ? 'Show Songs' : 'Show Playlist'}
-        </Text>
-      </TouchableOpacity>
+      <View style={styles(colorScheme, orientation).buttonContainer}>
+        <TouchableOpacity
+          onPress={() => setShowPlaylists(!showPlaylists)}
+          style={styles(colorScheme, orientation).toggleButton}
+        >
+          <Text style={styles(colorScheme, orientation).toggleButtonText}>
+            {showPlaylists ? 'Show Songs' : 'Show Playlists'}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setCreateModalVisible(true)}
+          style={styles(colorScheme, orientation).createButton}
+        >
+          <Text style={styles(colorScheme, orientation).toggleButtonText}>+ New Playlist</Text>
+        </TouchableOpacity>
+      </View>
 
       <FlatList
-        data={showPlaylist ? playlist : filteredMusicFiles}
+        data={showPlaylists ? playlists : filteredMusicFiles}
         keyExtractor={(item) => item.id}
-        renderItem={showPlaylist ? renderPlaylistItem : renderSongItem}
+        renderItem={showPlaylists ? renderPlaylist : renderSongItem}
         ListEmptyComponent={
           <Text style={styles(colorScheme, orientation).emptyText}>
-            {showPlaylist ? 'No tracks in playlist' : 'No songs found'}
+            {showPlaylists ? 'No playlists created yet' : 'No songs found'}
           </Text>
         }
         contentContainerStyle={{ paddingBottom: orientation === 'portrait' ? 120 : 80 }}
@@ -330,42 +442,142 @@ export default function PlaylistScreen() {
             Now Playing: {currentTrack.title}
           </Text>
           <View style={styles(colorScheme, orientation).controls}>
-            <TouchableOpacity onPress={playPrevious}>
+            <TouchableOpacity onPress={() => playPrevious(selectedPlaylist?.tracks || [])}>
               <Text style={styles(colorScheme, orientation).controlIcon}>⏮</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={togglePlayPause}>
               <Text style={styles(colorScheme, orientation).controlIcon}>{isPlaying ? '❚❚' : '▶'}</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={playNext}>
+            <TouchableOpacity onPress={() => playNext(selectedPlaylist?.tracks || [])}>
               <Text style={styles(colorScheme, orientation).controlIcon}>⏭</Text>
             </TouchableOpacity>
           </View>
         </View>
       )}
 
-      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
-        <View style={styles(colorScheme, orientation).modalContainer}>
-          <View style={styles(colorScheme, orientation).modalContent}>
+      {/* Song Details Modal */}
+      <Modal visible={songModalVisible} transparent animationType="slide" onRequestClose={() => setSongModalVisible(false)}>
+        <View style={styles(colorScheme, orientation).modalOverlay}>
+          <View style={styles(colorScheme, orientation).modalCard}>
             <Text style={styles(colorScheme, orientation).modalTitle}>{selectedTrack?.title}</Text>
-            <Text style={styles(colorScheme, orientation).modalText}>Artist: {selectedTrack?.artist || 'Unknown'}</Text>
-            <Text style={styles(colorScheme, orientation).modalText}>Album: {selectedTrack?.album || 'Unknown'}</Text>
+            <Text style={styles(colorScheme, orientation).modalSubtitle}>
+              Artist: {selectedTrack?.artist || 'Unknown'}
+            </Text>
+            <Text style={styles(colorScheme, orientation).modalSubtitle}>
+              Album: {selectedTrack?.album || 'Unknown'}
+            </Text>
             {selectedTrack?.artwork && (
-              <Image
-                source={{ uri: selectedTrack.artwork }}
-                style={styles(colorScheme, orientation).modalArtwork}
-              />
+              <Image source={{ uri: selectedTrack.artwork }} style={styles(colorScheme, orientation).modalArtwork} />
             )}
+            {playlists.map((playlist) => (
+              <TouchableOpacity
+                key={playlist.id}
+                onPress={() => {
+                  if (selectedTrack) addToPlaylist(selectedTrack, playlist.id);
+                  setSongModalVisible(false);
+                }}
+                style={styles(colorScheme, orientation).actionButtonSecondary}
+              >
+                <Text style={styles(colorScheme, orientation).actionButtonText}>Add to {playlist.title}</Text>
+              </TouchableOpacity>
+            ))}
             <TouchableOpacity
-              onPress={() => {
-                if (selectedTrack) playSound(selectedTrack, playlist.length);
-                setModalVisible(false);
-              }}
-              style={styles(colorScheme, orientation).playButton}
+              onPress={() => setSongModalVisible(false)}
+              style={styles(colorScheme, orientation).closeButton}
             >
-              <Text style={styles(colorScheme, orientation).playButtonText}>Play</Text>
+              <Text style={styles(colorScheme, orientation).closeButtonText}>Close</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Create Playlist Modal */}
+      <Modal
+        visible={createModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setCreateModalVisible(false)}
+      >
+        <View style={styles(colorScheme, orientation).modalOverlay}>
+          <View style={styles(colorScheme, orientation).modalCard}>
+            <Text style={styles(colorScheme, orientation).modalTitle}>Create New Playlist</Text>
+            <TextInput
+              style={styles(colorScheme, orientation).modalInput}
+              placeholder="Playlist Title"
+              placeholderTextColor={colorScheme === 'dark' ? '#aaaaaa' : '#666666'}
+              value={newPlaylistTitle}
+              onChangeText={setNewPlaylistTitle}
+            />
+            <View style={styles(colorScheme, orientation).modalButtonContainer}>
+              <TouchableOpacity
+                onPress={createPlaylist}
+                style={styles(colorScheme, orientation).actionButtonPrimary}
+              >
+                <Text style={styles(colorScheme, orientation).actionButtonText}>Create</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setCreateModalVisible(false)}
+                style={styles(colorScheme, orientation).actionButtonSecondary}
+              >
+                <Text style={styles(colorScheme, orientation).actionButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Edit Playlist Modal */}
+      <Modal visible={editModalVisible} transparent animationType="slide" onRequestClose={() => setEditModalVisible(false)}>
+        <View style={styles(colorScheme, orientation).modalOverlay}>
+          <View style={styles(colorScheme, orientation).modalCard}>
+            <Text style={styles(colorScheme, orientation).modalTitle}>Edit Playlist</Text>
+            <TextInput
+              style={styles(colorScheme, orientation).modalInput}
+              placeholder="New Playlist Title"
+              placeholderTextColor={colorScheme === 'dark' ? '#aaaaaa' : '#666666'}
+              value={selectedPlaylist?.title}
+              onChangeText={(text) => setSelectedPlaylist((prev) => (prev ? { ...prev, title: text } : null))}
+            />
+            <View style={styles(colorScheme, orientation).modalButtonContainer}>
+              <TouchableOpacity
+                onPress={() => selectedPlaylist && editPlaylistTitle(selectedPlaylist.id, selectedPlaylist.title)}
+                style={styles(colorScheme, orientation).actionButtonPrimary}
+              >
+                <Text style={styles(colorScheme, orientation).actionButtonText}>Save</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setEditModalVisible(false)}
+                style={styles(colorScheme, orientation).actionButtonSecondary}
+              >
+                <Text style={styles(colorScheme, orientation).actionButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Playlist Content Modal */}
+      <Modal
+        visible={playlistModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPlaylistModalVisible(false)}
+      >
+        <View style={styles(colorScheme, orientation).modalOverlay}>
+          <View style={styles(colorScheme, orientation).modalCardLarge}>
+            <Text style={styles(colorScheme, orientation).modalTitle}>{selectedPlaylist?.title}</Text>
+            <Text style={styles(colorScheme, orientation).modalSubtitle}>
+              {selectedPlaylist?.tracks.length} tracks
+            </Text>
+            <FlatList
+              data={selectedPlaylist?.tracks}
+              keyExtractor={(item) => item.id}
+              renderItem={renderPlaylistItem}
+              ListEmptyComponent={<Text style={styles(colorScheme, orientation).emptyText}>No tracks in this playlist</Text>}
+              style={styles(colorScheme, orientation).trackList}
+            />
             <TouchableOpacity
-              onPress={() => setModalVisible(false)}
+              onPress={() => setPlaylistModalVisible(false)}
               style={styles(colorScheme, orientation).closeButton}
             >
               <Text style={styles(colorScheme, orientation).closeButtonText}>Close</Text>
@@ -385,76 +597,88 @@ const styles = (scheme: 'light' | 'dark' | null, orientation: 'portrait' | 'land
   StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: scheme === 'dark' ? '#0f172a' : '#f8fafc',
+      backgroundColor: scheme === 'dark' ? '#0f172a' : '#f1f5f9',
       paddingHorizontal: orientation === 'portrait' ? 16 : 24,
-      paddingTop: orientation === 'portrait' ? 40 : 20,
+      paddingTop: orientation === 'portrait' ? 50 : 30,
     },
     header: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
+      marginBottom: orientation === 'portrait' ? 24 : 18,
       alignItems: 'center',
-      marginBottom: orientation === 'portrait' ? 20 : 15,
     },
     title: {
-      fontSize: orientation === 'portrait' ? 28 : 32,
+      fontSize: orientation === 'portrait' ? 32 : 36,
       fontFamily: 'Poppins-Black',
       color: scheme === 'dark' ? '#ffffff' : '#1e293b',
-      flex: 1,
       textAlign: 'center',
     },
     searchInput: {
-      height: 48,
-      backgroundColor: scheme === 'dark' ? '#1e293b' : '#e2e8f0',
-      borderRadius: 12,
-      paddingHorizontal: 16,
-      marginBottom: 16,
-      color: scheme === 'dark' ? '#ffffff' : '#1e293b',
+      height: 50,
+      backgroundColor: scheme === 'dark' ? '#1e293b' : '#e2e8f0', 
+      borderRadius: 15,
+      paddingHorizontal: 20,
+      marginBottom: 20,
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b', 
       fontSize: 16,
       fontFamily: 'Poppins-Medium',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
+      shadowColor: scheme === 'dark' ? '#000000' : '#aaaaaa', 
+      shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.1,
-      shadowRadius: 4,
-      elevation: 2,
+      shadowRadius: 6,
+      elevation: 3,
+    },
+    buttonContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 20,
     },
     toggleButton: {
-      backgroundColor: '#1e293b',
-      paddingVertical: 12,
+      backgroundColor: scheme === 'dark' ? '#1e293b' : '#e2e8f0', 
+      paddingVertical: 14,
       borderRadius: 12,
       alignItems: 'center',
-      marginBottom: 16,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
+      width: '48%',
+      shadowColor: scheme === 'dark' ? '#000000' : '#aaaaaa', 
+      shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.2,
-      shadowRadius: 4,
-      elevation: 3,
+      shadowRadius: 6,
+      elevation: 4,
+    },
+    createButton: {
+      backgroundColor: scheme === 'dark' ? '#1e293b' : '#e2e8f0', 
+      paddingVertical: 14,
+      borderRadius: 12,
+      alignItems: 'center',
+      width: '48%',
+      shadowColor: scheme === 'dark' ? '#000000' : '#aaaaaa', 
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.2,
+      shadowRadius: 6,
+      elevation: 4,
     },
     toggleButtonText: {
       fontSize: 16,
-      color: '#ffffff',
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b', 
       fontFamily: 'Poppins-SemiBold',
       fontWeight: '600',
     },
     songItem: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: scheme === 'dark' ? '#1e293b' : '#ffffff',
-      padding: 12,
-      borderRadius: 12,
-      marginVertical: 6,
-      borderWidth: 1,
-      borderColor: scheme === 'dark' ? '#3b82f6' : '#d0d0d0',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
+      backgroundColor: scheme === 'dark' ? '#1e293b' : '#e2e8f0', 
+      padding: 14,
+      borderRadius: 15,
+      marginVertical: 8,
+      shadowColor: scheme === 'dark' ? '#000000' : '#aaaaaa', 
+      shadowOffset: { width: 0, height: 2 },
       shadowOpacity: 0.1,
-      shadowRadius: 3,
+      shadowRadius: 4,
       elevation: 2,
     },
     artwork: {
       width: 50,
       height: 50,
-      borderRadius: 8,
-      backgroundColor: '#eee',
+      borderRadius: 10,
+      backgroundColor: scheme === 'dark' ? '#000000' : '#d1d5db', 
     },
     songInfo: {
       flex: 1,
@@ -462,77 +686,112 @@ const styles = (scheme: 'light' | 'dark' | null, orientation: 'portrait' | 'land
     },
     songTitle: {
       fontSize: 16,
-      color: scheme === 'dark' ? '#ffffff' : '#1e293b',
-      fontFamily: 'Poppins-Regular',
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b', 
+      fontFamily: 'Poppins-SemiBold',
       fontWeight: '600',
     },
     songArtist: {
       fontSize: 14,
-      color: scheme === 'dark' ? '#9ca3af' : '#666',
-      fontFamily: 'Poppins-Light',
+      color: scheme === 'dark' ? '#d1d5db' : '#64748b', 
+      fontFamily: 'Poppins-Regular',
     },
-    addToPlaylist: {
-      color: '#1e293b',
-      fontSize: 24,
-      fontFamily: 'Poppins-Medium',
-      fontWeight: 'bold',
-    },
-    playlistItem: {
+    playlistCard: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      backgroundColor: scheme === 'dark' ? '#1e293b' : '#ffffff',
-      padding: 12,
-      borderRadius: 12,
-      marginVertical: 6,
-      borderWidth: 1,
-      borderColor: scheme === 'dark' ? '#3b82f6' : '#d0d0d0',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
+      backgroundColor: scheme === 'dark' ? '#1e293b' : '#e2e8f0', 
+      padding: 16,
+      borderRadius: 15,
+      marginVertical: 8,
+      shadowColor: scheme === 'dark' ? '#000000' : '#aaaaaa', 
+      shadowOffset: { width: 0, height: 2 },
       shadowOpacity: 0.1,
-      shadowRadius: 3,
+      shadowRadius: 4,
       elevation: 2,
     },
-    playlistTitle: {
-      fontSize: 16,
-      color: scheme === 'dark' ? '#ffffff' : '#1e293b',
-      fontFamily: 'Poppins-Regular',
-      fontWeight: '600',
+    playlistContent: {
       flex: 1,
-      marginRight: 10,
     },
-    removeButton: {
-      color: '#ff6347',
+    playlistTitle: {
       fontSize: 18,
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b', 
       fontFamily: 'Poppins-SemiBold',
-      fontWeight: 'bold',
+      fontWeight: '600',
+    },
+    playlistSubtitle: {
+      fontSize: 14,
+      color: scheme === 'dark' ? '#d1d5db' : '#64748b', 
+      fontFamily: 'Poppins-Regular',
+    },
+    playlistActions: {
+      flexDirection: 'row',
+      gap: 10,
+    },
+    playlistTrackItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: scheme === 'dark' ? '#334155' : '#d1d5db',
+    },
+    playlistTrackContent: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    trackArtwork: {
+      width: 40,
+      height: 40,
+      borderRadius: 8,
+      marginRight: 12,
+    },
+    trackInfo: {
+      flex: 1,
+    },
+    trackTitle: {
+      fontSize: 16,
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b', 
+      fontFamily: 'Poppins-Medium',
+    },
+    trackArtist: {
+      fontSize: 14,
+      color: scheme === 'dark' ? '#d1d5db' : '#64748b', 
+      fontFamily: 'Poppins-Regular',
+    },
+    actionButton: {
+      padding: 8,
+    },
+    actionButtonText: {
+      fontSize: 18,
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b', 
+      fontFamily: 'Poppins-SemiBold',
     },
     emptyText: {
-      color: scheme === 'dark' ? '#9ca3af' : '#666',
+      color: scheme === 'dark' ? '#d1d5db' : '#64748b', 
       textAlign: 'center',
       marginTop: 20,
       fontSize: 16,
-      fontFamily: 'Poppins-Light',
+      fontFamily: 'Poppins-Regular',
     },
     nowPlaying: {
       position: 'absolute',
       bottom: orientation === 'portrait' ? 70 : 40,
       left: 16,
       right: 16,
-      backgroundColor: scheme === 'dark' ? '#1e293b' : '#dbeafe',
-      padding: 12,
-      borderRadius: 12,
+      backgroundColor: scheme === 'dark' ? '#1e293b' : '#e2e8f0', 
+      padding: 14,
+      borderRadius: 15,
       alignItems: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.3,
-      shadowRadius: 4,
+      shadowColor: scheme === 'dark' ? '#000000' : '#aaaaaa', 
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.2,
+      shadowRadius: 6,
       elevation: 5,
     },
     nowPlayingText: {
-      color: scheme === 'dark' ? '#ffffff' : '#1e293b',
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b', 
       fontSize: 16,
-      marginBottom: 8,
+      marginBottom: 10,
       fontFamily: 'Poppins-Medium',
       fontWeight: '600',
       maxWidth: '90%',
@@ -544,101 +803,134 @@ const styles = (scheme: 'light' | 'dark' | null, orientation: 'portrait' | 'land
     },
     controlIcon: {
       fontSize: 32,
-      color: scheme === 'dark' ? '#ffffff' : '#1e293b',
-      fontFamily: 'Poppins-Medium',
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b', 
     },
-    modalContainer: {
+    modalOverlay: {
       flex: 1,
       justifyContent: 'center',
       alignItems: 'center',
-      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      backgroundColor: scheme === 'dark' ? 'rgba(0, 0, 0, 0.7)' : 'rgba(107, 114, 128, 0.7)',y
     },
-    modalContent: {
+    modalCard: {
       backgroundColor: scheme === 'dark' ? '#1e293b' : '#ffffff',
-      padding: 20,
-      borderRadius: 15,
+      padding: 24,
+      borderRadius: 20,
       width: width * (orientation === 'portrait' ? 0.9 : 0.7),
       alignItems: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
+      shadowColor: scheme === 'dark' ? '#000000' : '#aaaaaa', 
+      shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.3,
-      shadowRadius: 5,
-      elevation: 5,
+      shadowRadius: 6,
+      elevation: 8,
+    },
+    modalCardLarge: {
+      backgroundColor: scheme === 'dark' ? '#1e293b' : '#ffffff', 
+      padding: 24,
+      borderRadius: 20,
+      width: width * (orientation === 'portrait' ? 0.9 : 0.7),
+      height: height * (orientation === 'portrait' ? 0.8 : 0.6),
+      shadowColor: scheme === 'dark' ? '#000000' : '#aaaaaa', 
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+      elevation: 8,
     },
     modalTitle: {
-      fontSize: 20,
-      color: scheme === 'dark' ? '#ffffff' : '#1e293b',
+      fontSize: 24,
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b', 
       fontFamily: 'Poppins-Bold',
       fontWeight: '700',
-      marginBottom: 10,
+      marginBottom: 12,
       textAlign: 'center',
     },
-    modalText: {
+    modalSubtitle: {
       fontSize: 16,
-      color: scheme === 'dark' ? '#9ca3af' : '#666',
+      color: scheme === 'dark' ? '#d1d5db' : '#64748b', 
       fontFamily: 'Poppins-Regular',
-      marginVertical: 5,
+      marginBottom: 12,
     },
     modalArtwork: {
       width: 150,
       height: 150,
+      borderRadius: 15,
+      marginBottom: 20,
+    },
+    modalInput: {
+      width: '100%',
+      height: 50,
+      backgroundColor: scheme === 'dark' ? '#0f172a' : '#f1f5f9', 
       borderRadius: 12,
-      marginVertical: 15,
+      paddingHorizontal: 16,
+      marginBottom: 20,
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b',
+      fontSize: 16,
+      fontFamily: 'Poppins-Medium',
     },
-    playButton: {
-      backgroundColor: '#1e293b',
-      paddingVertical: 10,
-      paddingHorizontal: 20,
-      borderRadius: 10,
-      marginTop: 15,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.2,
-      shadowRadius: 2,
-      elevation: 2,
+    modalButtonContainer: {
+      flexDirection: 'row',
+      gap: 12,
+      width: '100%',
+      justifyContent: 'center',
     },
-    playButtonText: {
-      color: '#ffffff',
+    actionButtonPrimary: {
+      backgroundColor: scheme === 'dark' ? '#2563eb' : '#3b82f6', 
+      paddingVertical: 12,
+      paddingHorizontal: 24,
+      borderRadius: 12,
+      flex: 1,
+      alignItems: 'center',
+    },
+    actionButtonSecondary: {
+      backgroundColor: scheme === 'dark' ? '#0f172a' : '#e2e8f0', 
+      paddingVertical: 12,
+      paddingHorizontal: 24,
+      borderRadius: 12,
+      flex: 1,
+      alignItems: 'center',
+    },
+    actionButtonText: {
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b',
       fontSize: 16,
       fontFamily: 'Poppins-SemiBold',
       fontWeight: '600',
     },
     closeButton: {
-      backgroundColor: '#ff6347',
-      paddingVertical: 10,
-      paddingHorizontal: 20,
-      borderRadius: 10,
-      marginTop: 10,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.2,
-      shadowRadius: 2,
-      elevation: 2,
+      backgroundColor: scheme === 'dark' ? '#000000' : '#d1d5db', 
+      paddingVertical: 12,
+      paddingHorizontal: 24,
+      borderRadius: 12,
+      marginTop: 20,
+      width: '100%',
+      alignItems: 'center',
     },
     closeButtonText: {
-      color: '#ffffff',
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b', 
       fontSize: 16,
       fontFamily: 'Poppins-SemiBold',
       fontWeight: '600',
+    },
+    trackList: {
+      width: '100%',
+      flex: 1,
     },
     backButton: {
       position: 'absolute',
       bottom: 20,
       left: 16,
       right: 16,
-      backgroundColor: '#1e293b',
-      paddingVertical: 12,
+      backgroundColor: scheme === 'dark' ? '#1e293b' : '#e2e8f0',
+      paddingVertical: 14,
       borderRadius: 12,
       alignItems: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
+      shadowColor: scheme === 'dark' ? '#000000' : '#aaaaaa', 
+      shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.2,
-      shadowRadius: 4,
-      elevation: 3,
+      shadowRadius: 6,
+      elevation: 4,
     },
     backButtonText: {
       fontSize: 16,
-      color: '#ffffff',
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b',
       fontFamily: 'Poppins-SemiBold',
       fontWeight: '600',
     },
