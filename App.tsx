@@ -27,9 +27,15 @@ export default function App() {
 
   return (
     <NavigationContainer theme={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="MusicPlayer" component={MusicPlayerScreen} />
-        <Stack.Screen name="Playlist" component={PlaylistScreen} />
+      <Stack.Navigator 
+        initialRouteName="MusicPlayerScreen"
+        screenOptions={{ 
+          headerShown: false,
+          gestureEnabled: true,
+        }}
+      >
+        <Stack.Screen name="MusicPlayerScreen" component={MusicPlayerScreen} />
+        <Stack.Screen name="PlaylistScreen" component={PlaylistScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

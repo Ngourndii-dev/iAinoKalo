@@ -586,8 +586,12 @@ export default function PlaylistScreen() {
         </View>
       </Modal>
 
-      <TouchableOpacity onPress={() => navigation.goBack()} style={styles(colorScheme, orientation).backButton}>
-        <Text style={styles(colorScheme, orientation).backButtonText}>Back to Player</Text>
+     
+      <TouchableOpacity
+        onPress={() => navigation.navigate('MusicPlayerScreen')}
+        style={styles(colorScheme, orientation).backButton}
+      >
+        <Text style={styles(colorScheme, orientation).backButtonText}>All Music</Text>
       </TouchableOpacity>
     </View>
   );
@@ -809,7 +813,7 @@ const styles = (scheme: 'light' | 'dark' | null, orientation: 'portrait' | 'land
       flex: 1,
       justifyContent: 'center',
       alignItems: 'center',
-      backgroundColor: scheme === 'dark' ? 'rgba(0, 0, 0, 0.7)' : 'rgba(107, 114, 128, 0.7)',y
+      backgroundColor: scheme === 'dark' ? 'rgba(0, 0, 0, 0.7)' : 'rgba(107, 114, 128, 0.7)',
     },
     modalCard: {
       backgroundColor: scheme === 'dark' ? '#1e293b' : '#ffffff',

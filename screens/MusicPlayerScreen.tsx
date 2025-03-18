@@ -311,11 +311,11 @@ export default function MusicPlayerScreen() {
           </TouchableOpacity>
         </Animated.View>
       )}
-      <TouchableOpacity
-        onPress={() => navigation.navigate('Playlist')}
-        style={styles(colorScheme, orientation).playlistButton}
+     <TouchableOpacity
+        onPress={() => navigation.navigate('PlaylistScreen')}
+        style={styles(colorScheme, orientation).backButton}
       >
-        <Text style={styles(colorScheme, orientation).playlistButtonText}>Go to Playlist</Text>
+        <Text style={styles(colorScheme, orientation).backButtonText}>Playlist</Text>
       </TouchableOpacity>
     </View>
   );
@@ -437,5 +437,26 @@ const styles = (scheme: 'light' | 'dark' | null, orientation: 'portrait' | 'land
       fontSize: 18,
       color: '#ffffff',
       fontFamily: 'Poppins-SemiBold',
+    },
+    backButton: {
+      position: 'absolute',
+      bottom: 10,
+      left: 8,
+      right: 8,
+      backgroundColor: scheme === 'dark' ? '#1e293b' : '#e2e8f0',
+      paddingVertical: 7,
+      borderRadius: 6,
+      alignItems: 'center',
+      shadowColor: scheme === 'dark' ? '#000000' : '#aaaaaa', 
+      shadowOffset: { width: 0, height: 2},
+      shadowOpacity: 0.2,
+      shadowRadius: 3,
+      elevation: 2,
+    },
+    backButtonText: {
+      fontSize: 8,
+      color: scheme === 'dark' ? '#ffffff' : '#1e293b',
+      fontFamily: 'Poppins-SemiBold',
+      fontWeight: '600',
     },
   });
